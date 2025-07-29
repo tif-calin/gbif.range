@@ -4,7 +4,7 @@
 #' Massively download and filter GBIF observations for sound spatial analyses
 #'
 #' Implement an user-friendly workflow to download and clean gbif taxa observations.
-#' The function uses the rgbif R package but (1) implements the same search result 
+#' The function uses the rgbif R package but (1) implements the same search result
 #' found if www.gbif.org is employed i.e., based on the input taxa name, all species
 #' records related to its accepted name and synonyms are extracted. The function
 #' also (2) bypasses the rgbif hard limit on the number of records (100'000 max).
@@ -18,7 +18,7 @@
 #' duplicates, removal of absences, basis of records selection, removal of invalid/uncertain
 #' xy coordinates (WGS84), time period selection and removal of raster centroids. By default,
 #' the argument hasGeospatialIssue in occ_data() (implemented rgbif function) is set to FALSE.
-#' 
+#'
 #' @param sp_name Character. Species name from which the user wants to retrieve all existing GBIF names
 #' with associated taxonomy and IUCN status.
 #' @param search Logical. If TRUE (default), the function will strictly look for the most relevant result, based
@@ -58,7 +58,7 @@
 #' 'MATERIAL_CITATION', MATERIAL_SAMPLE', 'PRESERVED_SPECIMEN', 'FOSSIL_SPECIMEN',
 #' 'LIVING_SPECIMEN', 'LITERATURE', UNKNOWN' and 'OCCURRENCE'. Default setting removes
 #' specimens and unknown observations.
-#' Description may be found here: https://docs.gbif.org/course-data-use/en/basis-of-record.html, 
+#' Description may be found here: https://docs.gbif.org/course-data-use/en/basis-of-record.html,
 #' https://gbif.github.io/parsers/apidocs/org/gbif/api/vocabulary/BasisOfRecord.html.
 #' @param establishment Character. Is the individual native, captive or else? Defaut is
 #' native, casual, released, reproducing, established, colonising and absence of information.
@@ -68,8 +68,8 @@
 #' List of IDs may be found at: https://www.gbif.org/developer/occurrence.
 #' Default IDs contain 'taxonKey', 'scientificName', 'acceptedTaxonKey',
 #' 'acceptedScientificName', 'individualCount', 'decimalLatitude', 'decimalLongitude',
-#' 'basisOfRecord', 'coordinateUncertaintyInMeters', 'countryCode', 'country', 'year', 'datasetKey', 
-#' 'institutionCode', 'publishingOrgKey', 'taxonomicStatus', 'taxonRank' and 'degreeOfEstablishment'. 
+#' 'basisOfRecord', 'coordinateUncertaintyInMeters', 'countryCode', 'country', 'year', 'datasetKey',
+#' 'institutionCode', 'publishingOrgKey', 'taxonomicStatus', 'taxonRank' and 'degreeOfEstablishment'.
 #' @param time_period Numerical vector. Observations will be downloaded according to the chosen
 #' year range. Default is c(1000,3000). Observations with year = NA are kept by default.
 #' @param identic_xy Logical. Should records with identical xy be kept? Default is FALSE.
@@ -87,6 +87,8 @@
 #' in a tile (i.e. ~10'000 records). A lower number may be set (<10'000) if the user only wants
 #' a sample of the species GBIF observations, hence increasing the download process and the
 #' generation of its range map if get_range() is employed afterwards.
+#' @param should_use_occ_download Logical. If TRUE, the function will use the rgbif::occ_download()
+#' instead of rgbif::occ_data(). This requires GBIF credentials! Defaults to FALSE.
 #' @param ... Additonnal parameters for the function cd_round() of CoordinateCleaner.
 #' @details Argument `grain` used for two distinct gbif records filtering. (1) Records filtering
 #' according to gbif 'coordinateUncertaintyInMeters'; every records uncertainty > grain/2
@@ -102,18 +104,18 @@
 #' may still be applied afterwards. Although crucial preliminary checks of species records
 #' are done by the function, additional post exploration with the CoordinateCleaner R
 #' package is still highly recommended.
-#' @references 
+#' @references
 #' Chauvier, Y., Thuiller, W., Brun, P., Lavergne, S., Descombes, P., Karger, D. N., ... & Zimmermann,
 #' N. E. (2021). Influence of climate, soil, and land cover on plant species distribution in the
 #' European Alps. Ecological monographs, 91(2), e01433. 10.1002/ecm.1433
-#' 
+#'
 #' Chamberlain, S., Oldoni, D., & Waller, J. (2022). rgbif: interface to the global biodiversity
 #' information facility API. 10.5281/zenodo.6023735
-#' 
+#'
 #' Zizka, A., Silvestro, D., Andermann, T., Azevedo, J., Duarte Ritter, C., Edler, D., ... & Antonelli,
 #' A. (2019). CoordinateCleaner: Standardized cleaning of occurrence records from biological collection
 #' databases. Methods in Ecology and Evolution, 10(5), 744-751. 10.1111/2041-210X.13152
-#' 
+#'
 #' Hijmans, Robert J. "terra: Spatial Data Analysis. R Package Version 1.6-7." (2022). Terra - CRAN
 #' @seealso The (1) rgbif and (2) CoordinateCelaner packages for additional and more general
 #' approaches on (1) downloading GBIF observations and (2) post-filtering those.
@@ -147,24 +149,20 @@ get_gbif <- function(sp_name = NULL,
 					ntries = 10,
 					error_skip = TRUE,
 					occ_samp = 10000,
+					should_use_occ_download = FALSE,
 					...) {
-
-
 	######################################################
 	### Stop message
 	######################################################
-
-
 	if (is.null(sp_name) | is.na(sp_name)) {
 		stop("Given 'sp_name' is NA or NULL, a string must be provided...")
 	}
 
+  start.time <- Sys.time()
 
 	######################################################
 	### Parameter config
 	######################################################
-
-
 	# For precision and 'cd_ddm'
 	grain = grain * 1000
 	deci.preci <- list(seq(0,10,1), rev(0.000011 * 10^(0:10)))
@@ -181,16 +179,15 @@ get_gbif <- function(sp_name = NULL,
 
 	# For fields
 	gbif.info <- c('taxonKey', 'scientificName', 'acceptedTaxonKey', 'acceptedScientificName',
-		'individualCount', 'occurrenceStatus', 'establishmentMeans', 'degreeOfEstablishment', 
+		'individualCount', 'occurrenceStatus', 'establishmentMeans', 'degreeOfEstablishment',
 		'decimalLatitude', 'decimalLongitude', 'basisOfRecord', 'coordinateUncertaintyInMeters',
 		'countryCode', 'country', 'year', 'datasetKey', 'institutionCode', 'publishingOrgKey',
 		'taxonomicStatus', 'taxonRank', add_infos)
 	gbif.info <- gbif.info[order(gbif.info)]
 
-		# Create an empty ouptut
+  # Create an empty ouptut
 	e.output <- data.frame(matrix(ncol = length(gbif.info), nrow = 0,
 		dimnames = list(NULL, gbif.info)))
-
 
 	# Set geo.ref
 	geo.ref <- paste0("POLYGON((", geo$xmin, " ", geo$ymin, ", ",
@@ -199,12 +196,9 @@ get_gbif <- function(sp_name = NULL,
 							  geo$xmin, " ", geo$ymax, ", ",
 							  geo$xmin, " ", geo$ymin, "))")
 
-
 	######################################################
 	### Backbone harmonization and N records
 	######################################################
-
-
 	if (!search){
     # Search input name via fuzzy match and direct search
     bone.search <- rgbif::name_backbone(sp_name,
@@ -221,10 +215,10 @@ get_gbif <- function(sp_name = NULL,
                                        verbose = TRUE,
                                        strict = TRUE)
 
-    q.crit <- !sapply(list(rank,phylum,class,order,family),is.null) 
+    q.crit <- !sapply(list(rank,phylum,class,order,family),is.null)
 
     # Filter by given criterias if results
-    if (!bone.search$matchType[1] %in% "NONE"){ 
+    if (!bone.search$matchType[1] %in% "NONE"){
       if (any(q.crit)){
         id.crit <- c("rank", "phylum", "class", "order", "family")[q.crit]
         p.crit <- unlist(list(rank, phylum, class, order, family)[q.crit])
@@ -247,7 +241,7 @@ get_gbif <- function(sp_name = NULL,
         }
       }
     }
-    
+
     # Normal procedure with or without criterias
     if (nrow(bone.search) > 1){
       if (all(!bone.search$rank %in% c("SPECIES", "SUBSPECIES", "VARIETY"))){
@@ -292,12 +286,11 @@ get_gbif <- function(sp_name = NULL,
         # If not the same species overall return empty
         s.usp <- length(unique(bone.search$speciesKey)) == 1
         if (!s.usp){
-          cat("No synonyms distinction could be made. Consider using phylum/class/order/family...","\n")
+          cat("No synonyms distinction could be made. Consider using phylum/class/order/family...", "\n")
           return(e.output)
-
         } else {
           bone.search <- bone.search[1, ]
-        } 
+        }
       }
     }
   }
@@ -310,7 +303,7 @@ get_gbif <- function(sp_name = NULL,
   if (bone.search$confidence[1] < conf_match) {
     cat("Confidence match not high enough...","\n")
     return(e.output)
-  }  
+  }
 
 	# Get the accepetedKey
 	if (bone.search$status %in% "SYNONYM"){
@@ -320,30 +313,28 @@ get_gbif <- function(sp_name = NULL,
 	}
 
 	# Check number of records in 'geo' first
-	gbif.records <- rgbif::occ_count(taxonKey = sp.key,
-																  hasCoordinate = !no_xy,
-																  hasGeospatialIssue = FALSE,
-																  geometry = geo.ref
-																  )
+	gbif.records <- rgbif::occ_count(
+    taxonKey = sp.key,
+    hasCoordinate = !no_xy,
+    hasGeospatialIssue = FALSE,
+    geometry = geo.ref
+  )
 
-	cat(">>>>>>>> Total number of records:",gbif.records,"\n")
+	cat(">> Total number of records:", gbif.records, "\n")
 
-	# Cancel request if n=0
-	if (gbif.records ==0 ) {
+	# Cancel request if n==0
+	if (gbif.records == 0 ) {
 		cat("No species records found...","\n")
 		return(e.output)
 	}
 
-
 	######################################################
 	### Find the tiles where obs. < 10'000 observations
 	######################################################
-
-
+	record_limit <- ifelse(should_use_occ_download, 999999999, 10000)
 	## 1) If species records > 10'000, search for the optimum tiles
-	if (gbif.records > 10000)
-	{
-		cat(">>>>>>>> Too many records: Retrieving relevant geographic tiles...","\n")
+	if (gbif.records > record_limit) {
+		cat(">>> Too many records: Retrieving relevant geographic tiles...","\n")
 
 		# Start with 10 tiles
 		tile.100 <- make_tiles(geo, Ntiles = 10, sext = TRUE)
@@ -351,59 +342,56 @@ get_gbif <- function(sp_name = NULL,
 		geo.meta <- lapply(tile.100[[2]], function(x) x[])
 
 		# Check number of records for each tiles
-		gbif.tiles <-
-		sapply(geo.tiles, function(x) {
-			gt.out <- rgbif::occ_count(taxonKey = sp.key,
-																hasCoordinate = !no_xy,
-																hasGeospatialIssue = FALSE,
-																geometry = x
-																)
+		gbif.tiles <- sapply(geo.tiles, function(x) {
+			gt.out <- rgbif::occ_count(
+        taxonKey = sp.key,
+        hasCoordinate = !no_xy,
+        hasGeospatialIssue = FALSE,
+        geometry = x
+      )
 			return(gt.out)
 		})
 
 		# We make sure that each tile will be fragmented enough
-		# (i.e., < 10'000 species records each)
-		keep.tiles <-
-		lapply(1:length(gbif.tiles), function(x){
-
+		# (i.e., <10'000 species records each)
+		keep.tiles <- lapply(1:length(gbif.tiles), function(x){
 			# Which tile
 			tile.n <- gbif.tiles[x]
 
-			# Return NULL or POLYGON if 0 records or > 10'000 records
-			if (tile.n == 0) {return(NULL)}
-			if (tile.n < 10000) {return(geo.tiles[x])}
+			# Return NULL or POLYGON if 0 records or >10'000 records
+			if (tile.n == 0) { return(NULL) }
+			if (tile.n < 10000) { return(geo.tiles[x]) }
 
 			# Keep fragmenting if > 10'000 records
 			new.geo <- list(geo.meta[[x]])
 			pol.store <- list()
-			while (length(new.geo) != 0)
-			{
-				m.process <-
-				lapply(1:length(new.geo), function(y){
-
-          Sys.sleep(3)
+			while (length(new.geo) != 0) {
+				m.process <- lapply(1:length(new.geo), function(y){
+          Sys.sleep(0.01)
 
 					# Convert to extent and create 5 new micro tiles
 					new.ext <- terra::ext(new.geo[[y]])
 					micro.100 <- make_tiles(new.ext, Ntiles = 5, sext = TRUE)
 
 					# If micro.100 is NULL return NULL (in case of an incorrect extent)
-					if (is.null(micro.100)) {
-						return(list(NULL,NULL))
-					}
+					if (is.null(micro.100)) { return(list(NULL, NULL)) }
 
 					# Continue
 					micro.tiles <- micro.100[[1]]
 					micro.meta <- lapply(micro.100[[2]], function(z) z[])
 
 					# And count records again
-					gbif.micro <-
-						sapply(micro.tiles, function(z) {
-							gt.out <- try(rgbif::occ_count(taxonKey = sp.key,
-																						hasCoordinate = !no_xy,
-																						hasGeospatialIssue = FALSE,
-																						geometry = z
-																						),silent = TRUE)
+					gbif.micro <- sapply(micro.tiles, function(z) {
+						gt.out <- try(
+							rgbif::occ_count(
+								taxonKey = sp.key,
+								hasCoordinate = !no_xy,
+								hasGeospatialIssue = FALSE,
+								geometry = z
+							),
+							silent = TRUE
+						)
+
 						return(gt.out)
 					})
 
@@ -416,7 +404,7 @@ get_gbif <- function(sp_name = NULL,
 					bady <- micro.meta[!gbif.micro < 10000 & gbif.micro != 0]
 
           # Return
-					return(list(goody,bady))
+					return(list(goody, bady))
 				})
 
 				# Restructure
@@ -427,90 +415,104 @@ get_gbif <- function(sp_name = NULL,
 
 				# Store if no blocks with > 10'000 observations found
 				pol.store <- c(pol.store, unlist(all.good, recursive = FALSE))
-				new.geo <- unlist(all.bad,recursive = FALSE)
+				new.geo <- unlist(all.bad, recursive = FALSE)
 
 				# Finally remove too small windows (for "invisible" GBIF duplicated records)
 				inf.id <- sapply(new.geo, function(y) (y[2] - y[1]) < 1e-7)
 				new.geo <- new.geo[!inf.id]
 			}
+
 			return(unlist(pol.store, recursive = FALSE))
 		})
 
 		# Final list of POLYGONS with n observations < 10'000 observations
 		geo.ref <- unlist(keep.tiles)
 	}
-	
+
 	######################################################
 	#################### API Search ######################
 	######################################################
-
 	# Information messages
-	if (occ_samp != 10000) {
-		cat("...GBIF records of",sp_name,": download of sample of records starting...","\n")
-	} else {
-		cat("...GBIF records of",sp_name,": download of all records starting...","\n")
-	}
+  cat(">>> GBIF records of ", sp_name, ": download of ", if(occ_samp != 10000) "sample of" else "all", " records across ", length(geo.ref), " tiles starting...", "\n", sep="")
 
 	# Run the gbif search with the acceptedName per chosen tiles
-	batch.search <-
-	lapply(1:length(geo.ref), function(x) {
-
-    Sys.sleep(3)
-
-		cat("\r","-----------------",round(x * 100/length(geo.ref), 2), "%...")
+	batch.search <- lapply(1:length(geo.ref), function(x) {
+    Sys.sleep(1)
 
 		## Try the download first: may be request overload problems
 		go.tile <- geo.ref[x]
-		gbif.search <- try(
-			rgbif::occ_data(taxonKey = sp.key,
-											limit = occ_samp,
-											hasCoordinate = !no_xy,
-											hasGeospatialIssue = FALSE,
-											geometry = go.tile),
-			silent=TRUE)
+		gbif.search <- if (should_use_occ_download) {
+			req_id = rgbif::occ_download(
+				rgbif::pred("taxonKey", sp.key),
+				rgbif::pred("hasCoordinate", !no_xy),
+				rgbif::pred("hasGeospatialIssue", FALSE),
+				rgbif::pred_within(go.tile),
+				format = "SIMPLE_CSV",
+				curlopts=list(http_version=2)
+			)
+			cat(">>> Download request ID:", req_id, "\n")
+			rgbif::occ_download_wait(req_id, status_ping = 5, curlopts = list(http_version=2), quiet = FALSE)
+			download <- rgbif::occ_download_get(req_id)
+			try(rgbif::occ_download_import(download), silent = FALSE)
+		} else {
+    	cat(">>>> #", x, " (", round(x * 100/length(geo.ref), 2), "%): ", sep="")
+			try(
+				rgbif::occ_data(
+					taxonKey = sp.key,
+					limit = occ_samp,
+					hasCoordinate = !no_xy,
+					hasGeospatialIssue = FALSE,
+					geometry = go.tile
+				),
+				silent=TRUE
+			)
+		}
 
 		# If problems, just try to rerun with while with n attempts, otherwise return NULL
-		if (class(gbif.search) %in% "try-error") {
+		if (!should_use_occ_download && class(gbif.search) %in% "try-error") {
 			print(gbif.search[1])
-			warning("\n","GBIF query overload or rgbif package error [taxonKey=", sp.key,"]...","\n",sep="")
+			warning("\n", "GBIF query overload or rgbif package error [taxonKey=", sp.key,"]...", "\n", sep="")
 
 			# While
 			if (class(gbif.search) %in% "try-error") {
 				j <- 0
-				while (class(gbif.search) %in% "try-error" & j < ntries)
-				{
-					cat("\n","Attempt", j + 1, "...", "\n")
+				while (class(gbif.search) %in% "try-error" & j < ntries) {
+					cat("\n", "Attempt", j + 1, "...", "\n")
 					j <- j + 1
 					gbif.search <- try(
-						rgbif::occ_data(taxonKey = sp.key,
-														limit = occ_samp,
-														hasCoordinate = !no_xy,
-														hasGeospatialIssue = FALSE,
-														geometry = go.tile),
-						silent=TRUE)
-					  Sys.sleep(3)
+						rgbif::occ_download(
+							taxonKey = sp.key,
+							limit = occ_samp,
+							hasCoordinate = !no_xy,
+							hasGeospatialIssue = FALSE,
+							geometry = go.tile
+						),
+						silent=TRUE
+					)
+					Sys.sleep(3)
 				}
 
 				if (class(gbif.search) %in% "try-error") {
 					if (error_skip){
-						cat("\n","Attempts to download failed...Returning no results")
+						cat("\n", "Attempts to download failed... returning no results.")
 						return(e.output)
 					} else {
-						stop("\n","ERROR (not skipped) for [taxonKey=",sp.key,"]...","\n",sep="")
+						stop("\n", "ERROR (not skipped) for [taxonKey=",sp.key,"]...", "\n", sep="")
 					}
 				}
 			}
 		}
 
+		if (should_use_occ_download) gbif.search$data <- gbif.search
+
 		# If no results
-		if (is.null(gbif.search$data)){
-			
+		if (is.null(gbif.search$data)) {
 			return(e.output)
-		
 		} else {
+			cat(nrow(gbif.search$data), "records.", "\n")
 
 			# Convert to a data.frame is needed
-			if (class(gbif.search$data)[1] != "data.frame"){
+			if (class(gbif.search$data)[1] != "data.frame") {
 				gbif.search <- as.data.frame(gbif.search$data)
 			}
 
@@ -526,7 +528,7 @@ get_gbif <- function(sp_name = NULL,
 	})
 
 	# Combine all results in one data.frame
-	gbif.compile <- do.call("rbind",batch.search)
+	gbif.compile <- do.call("rbind", batch.search)
 
 	# Keep specific fields (just for safety)
 	gbif.compile <- gbif.compile[, gbif.info]
@@ -535,19 +537,18 @@ get_gbif <- function(sp_name = NULL,
 	#############################################################
 	#################### Records filtering ######################
 	#############################################################
-
+	cat("\n>>> Removing unwanted records...", "\n")
 
 	############ 1) Grain filtering
-	cat("\n","---> Grain filtering...","\n",sep="")
-		
-		# GBIF uncertainty
+	cat(">>>> Grain filtering...","\n",sep="")
+
+  # GBIF uncertainty
 	id.certain <- gbif.compile$coordinateUncertaintyInMeters <= grain / 2
 	id.certain[is.na(id.certain)] <- TRUE
 	gbif.correct <- gbif.compile[id.certain, ]
 
-		# GBIF lon/lat decimals
+  # GBIF lon/lat decimals
 	if (grain < 1.1e5) {
-
 		# Remove latitude or/and longitude with no decimals
 		lonlat.format <- data.frame(decimalLatitude = as.character(gbif.correct$decimalLatitude),
 																decimalLongitude = as.character(gbif.correct$decimalLongitude))
@@ -560,43 +561,30 @@ get_gbif <- function(sp_name = NULL,
 		declon <- gsub(".*\\.", "", lonlat.deci[, 2])
 		id.grain <- nchar(declon) >= deci.chosen & nchar(declat) >= deci.chosen
 		gbif.correct <- gbif.correct[id.grain, ]
-
 	} else {
 		id.grain <- NULL
 	}
 
-		# Removal summary
-	if (any(names(table(c(id.certain,id.grain))) %in% FALSE)){
-		removed <- table(c(id.certain,id.grain))[1]
-		cat("Records removed:",removed,"\n")
-	} else {
-		cat("Records removed:",0,"\n")
-	}
-
+  # Removal summary
+  removed <- if (any(names(table(c(id.certain,id.grain))) %in% FALSE)) table(c(id.certain, id.grain))[1] else 0
+  cat(">>>>> Records removed:", removed, "\n")
 
 	############ 2) Removing xy duplicates
 	if (!duplicates){
+		cat(">>>> Removal of duplicated records...","\n")
 
-		cat("---> Removal of duplicated records...","\n")
-		
 		id.dup <- !duplicated(gbif.correct[, c("decimalLongitude","decimalLatitude")])
 		gbif.correct <- gbif.correct[id.dup, ]
 
 		# Removal summary
-		if (any(names(table(id.dup)) %in% FALSE)){
-			removed <- table(id.dup)[1]
-			cat("Records removed:",removed,"\n")
-		} else {
-			cat("Records removed:",0,"\n")
-		}
+		removed <- if (any(names(table(id.dup)) %in% FALSE)) table(id.dup)[1] else 0
+		cat(">>>>> Records removed:", removed, "\n")
 	}
 
-	
 	############ 3) Removing absences
 	if (!absences){
+		cat(">>>> Removal of absence records...","\n")
 
-		cat("---> Removal of absence records...","\n")
-		
 		id.abs <- !(gbif.correct$individualCount %in% 0 | gbif.correct$occurrenceStatus %in% "ABSENT")
 		gbif.correct <- gbif.correct[id.abs, ]
 
@@ -611,12 +599,12 @@ get_gbif <- function(sp_name = NULL,
 
 
 	############ 4) Select basis of records
-	cat("---> Basis of records selection...","\n")
+	cat(">>>> Basis of records selection...","\n")
 
 	id.basis <- gbif.correct$basisOfRecord %in% basis
 	gbif.correct <- gbif.correct[id.basis, ]
 
-		# Removal summary
+  # Removal summary
 	if (any(names(table(id.basis)) %in% FALSE)){
 		removed <- table(id.basis)[1]
 		cat("Records removed:",removed,"\n")
@@ -626,12 +614,12 @@ get_gbif <- function(sp_name = NULL,
 
 
 	############ 4.5) Select establishment of records
-	cat("---> Establishment of records selection...","\n")
+	cat(">>>> Establishment of records selection...","\n")
 
 	id.esta <- gbif.correct$degreeOfEstablishment %in% establishment | is.na(gbif.correct$degreeOfEstablishment)
 	gbif.correct <- gbif.correct[id.esta, ]
 
-		# Removal summary
+  # Removal summary
 	if (any(names(table(id.esta)) %in% FALSE)){
 		removed <- table(id.esta)[1]
 		cat("Records removed:",removed,"\n")
@@ -639,15 +627,15 @@ get_gbif <- function(sp_name = NULL,
 		cat("Records removed:",0,"\n")
 	}
 
-	
+
 	############ 5) Select records according to year range
-	cat("---> Time period selection...","\n")
+	cat(">>>> Time period selection...","\n")
 
 	id.year <- gbif.correct$year >= min(time_period) & gbif.correct$year <= max(time_period)
 	id.year[is.na(id.year)] <- TRUE
 	gbif.correct <- gbif.correct[id.year, ]
 
-		# Removal summary
+  # Removal summary
 	if (any(names(table(id.year)) %in% FALSE)){
 		removed <- table(id.year)[1]
 		cat("Records removed:",removed,"\n")
@@ -655,12 +643,11 @@ get_gbif <- function(sp_name = NULL,
 		cat("Records removed:",0,"\n")
 	}
 
-	
+
 	############ 6) Remove records with identical xy
 	if (nrow(gbif.correct) > 0){
 		if (!identic_xy){
-		
-			cat("---> Removal of identical xy records...","\n")
+			cat(">>>> Removal of identical xy records...","\n")
 
 			id.diff <- c(!(abs(gbif.correct[, "decimalLatitude"]) ==
 				abs(gbif.correct[, "decimalLongitude"])))
@@ -683,8 +670,7 @@ get_gbif <- function(sp_name = NULL,
 
 	if (nrow(gbif.correct) > 0){
 		if (!wConverted_xy){
-
-			cat("---> Removal of wrong lon/lat converted records...","\n")
+			cat(">>>> Removal of wrong lon/lat converted records...","\n")
 
 			# Keep dataset with NAs
 			gbif.na <- gbif.correct[is.na(gbif.correct$datasetKey),]
@@ -730,12 +716,11 @@ get_gbif <- function(sp_name = NULL,
 
 	if (nrow(gbif.correct) > 0){
 		if (!centroids){
-
-			cat("---> Removal of raster centroids...","\n")
+			cat(">>>> Removal of raster centroids...","\n")
 
 			# Keep dataset with NAs
 			gbif.na <- gbif.correct[is.na(gbif.correct$datasetKey), ]
-			
+
 			# Summary of datasets & cd_ddmm parameter choice
 			gbif.datasets <- names(table(gbif.correct$datasetKey))
 
@@ -752,7 +737,7 @@ get_gbif <- function(sp_name = NULL,
 																						 graphs = FALSE,
 																						 ...),
 					silent=TRUE)
-					
+
 					if (class(gbif.temp) %in% "try-error") {
 						return(gbif.dataset)
 
@@ -770,11 +755,15 @@ get_gbif <- function(sp_name = NULL,
 			cat("Records removed:",gbif.nrow - nrow(gbif.correct),"\n")
 		}
 	}
+
+  end.time <- Sys.time()
+  time.taken <- end.time - start.time
+  cat(">>> GBIF records of ", sp_name, ": download finished in ", round(time.taken, 2), " seconds.\n", sep="")
+
 	if (nrow(gbif.correct) == 0) {
 		cat("No records left after selection...","\n")
 		return(e.output)
-
 	} else {
-		return(cbind(input_search = sp_name,gbif.correct))
+		return(cbind(input_search = sp_name, gbif.correct))
 	}
 }
